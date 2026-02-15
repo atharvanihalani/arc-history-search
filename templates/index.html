@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arc History Search</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Arc History Search</h1>
+
+        <form id="search-form" class="search-form">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="profile">Profile</label>
+                    <select id="profile" name="profile">
+                        <option value="both">Both Profiles</option>
+                        <option value="default">Default</option>
+                        <option value="profile7">Profile 7</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="start">Start Date</label>
+                    <input type="date" id="start" name="start">
+                </div>
+
+                <div class="form-group">
+                    <label for="end">End Date</label>
+                    <input type="date" id="end" name="end">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group search-group">
+                    <label for="q">Search</label>
+                    <input type="text" id="q" name="q" placeholder="Search in URL or title...">
+                </div>
+
+                <div class="form-group button-group">
+                    <button type="submit" class="btn btn-primary">Search</button>
+                    <button type="button" id="refresh-btn" class="btn btn-secondary">Refresh Data</button>
+                </div>
+            </div>
+        </form>
+
+        <div id="status" class="status"></div>
+
+        <div id="results-info" class="results-info"></div>
+
+        <table id="results-table" class="results-table">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>URL</th>
+                    <th>Visit Time</th>
+                    <th>Profile</th>
+                </tr>
+            </thead>
+            <tbody id="results-body">
+            </tbody>
+        </table>
+
+        <div id="pagination" class="pagination"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('search-form');
+        const resultsBody = document.getElementById('results-body');
+        const resultsInfo = document.getElementById('results-info');
+        const pagination = document.getElementById('pagination');
+        const statusDiv = document.getElementById('status');
+        const refreshBtn = document.getElementById('refresh-btn');
+
+        let currentPage = 1;
+
+        function showStatus(message, isError = false) {
+            statusDiv.textContent = message;
+            statusDiv.className = 'status ' + (isError ? 'error' : 'success');
+            setTimeout(() => {
+                statusDiv.textContent = '';
+                statusDiv.className = 'status';
+            }, 3000);
+        }
+
+        async function performSearch(page = 1) {
+            const formData = new FormData(form);
+            const params = new URLSearchParams();
+
+            params.set('q', formData.get('q') || '');
+            params.set('start', formData.get('start') || '');
+            params.set('end', formData.get('end') || '');
+            params.set('profile', formData.get('profile') || 'both');
+            params.set('page', page);
+
+            try {
+                const response = await fetch('/search?' + params.toString());
+                const data = await response.json();
+
+                currentPage = data.page;
+                renderResults(data);
+            } catch (err) {
+                showStatus('Search failed: ' + err.message, true);
+            }
+        }
+
+        function renderResults(data) {
+            resultsBody.innerHTML = '';
+
+            if (data.results.length === 0) {
+                resultsInfo.textContent = 'No results found.';
+                pagination.innerHTML = '';
+                return;
+            }
+
+            const start = (data.page - 1) * data.per_page + 1;
+            const end = Math.min(data.page * data.per_page, data.total_count);
+            resultsInfo.textContent = `Showing ${start}-${end} of ${data.total_count} results`;
+
+            for (const item of data.results) {
+                const row = document.createElement('tr');
+
+                const titleCell = document.createElement('td');
+                titleCell.textContent = item.title;
+                titleCell.className = 'title-cell';
+                row.appendChild(titleCell);
+
+                const urlCell = document.createElement('td');
+                const link = document.createElement('a');
+                link.href = item.url;
+                link.textContent = item.url.length > 60 ? item.url.substring(0, 60) + '...' : item.url;
+                link.target = '_blank';
+                link.title = item.url;
+                urlCell.appendChild(link);
+                urlCell.className = 'url-cell';
+                row.appendChild(urlCell);
+
+                const timeCell = document.createElement('td');
+                timeCell.textContent = item.visit_time_display;
+                timeCell.className = 'time-cell';
+                row.appendChild(timeCell);
+
+                const profileCell = document.createElement('td');
+                profileCell.textContent = item.profile === 'default' ? 'Default' : 'Profile 7';
+                profileCell.className = 'profile-cell';
+                row.appendChild(profileCell);
+
+                resultsBody.appendChild(row);
+            }
+
+            renderPagination(data.page, data.total_pages);
+        }
+
+        function renderPagination(currentPage, totalPages) {
+            pagination.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            const createButton = (text, page, disabled = false, active = false) => {
+                const btn = document.createElement('button');
+                btn.textContent = text;
+                btn.disabled = disabled;
+                if (active) btn.className = 'active';
+                if (!disabled) {
+                    btn.addEventListener('click', () => performSearch(page));
+                }
+                return btn;
+            };
+
+            pagination.appendChild(createButton('« Prev', currentPage - 1, currentPage === 1));
+
+            // Show page numbers
+            const maxVisible = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+
+            if (endPage - startPage < maxVisible - 1) {
+                startPage = Math.max(1, endPage - maxVisible + 1);
+            }
+
+            if (startPage > 1) {
+                pagination.appendChild(createButton('1', 1));
+                if (startPage > 2) {
+                    const ellipsis = document.createElement('span');
+                    ellipsis.textContent = '...';
+                    pagination.appendChild(ellipsis);
+                }
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                pagination.appendChild(createButton(i, i, false, i === currentPage));
+            }
+
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    const ellipsis = document.createElement('span');
+                    ellipsis.textContent = '...';
+                    pagination.appendChild(ellipsis);
+                }
+                pagination.appendChild(createButton(totalPages, totalPages));
+            }
+
+            pagination.appendChild(createButton('Next »', currentPage + 1, currentPage === totalPages));
+        }
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            performSearch(1);
+        });
+
+        refreshBtn.addEventListener('click', async () => {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = 'Refreshing...';
+
+            try {
+                const response = await fetch('/refresh', { method: 'POST' });
+                const data = await response.json();
+                showStatus(data.message);
+            } catch (err) {
+                showStatus('Refresh failed: ' + err.message, true);
+            } finally {
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = 'Refresh Data';
+            }
+        });
+
+        // Initial search on load
+        performSearch(1);
+    </script>
+</body>
+</html>
